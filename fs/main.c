@@ -44,6 +44,16 @@ static void duck_parsepathrelease(struct PathInfo *info)
         free(info->filepath);
 }
 
+static int duck_isfile(struct PathInfo *info)
+{
+    printf("stacklen: %d\n", info->stacklen);
+
+    if (info->stacklen > 0)
+        return 1;
+
+    return 0;
+}
+
 static char *duck_filepath(struct PathInfo *info)
 {
     char buf[BUFFER_SIZE];
@@ -80,8 +90,8 @@ static int duck_parsepath(struct PathInfo *info, const char *path)
     }
     info->stacklen = pos;
 
-    // if ((info->isfile = duck_isfile(info)))
-    //     info->filepath = duck_filepath(info);
+    if ((info->isfile = duck_isfile(info)))
+        info->filepath = duck_filepath(info);
 
     return 0;
 }
@@ -184,24 +194,30 @@ static void duck_readdir_alpha_letter(struct PathInfo *info, void *buf, fuse_fil
 	// closedir(dp);
 }
 
-static void duck_readdir_manage_root(struct PathInfo *info, void *buf, fuse_fill_dir_t filler)
+static void duck_readdir_root(struct PathInfo *info, void *buf, fuse_fill_dir_t filler)
 {
-    // (void) info;
+    (void) info;
 
-    // DIR *dp;
-	// if ((dp = opendir(_srcpath)) == NULL)
-	// 	return;
+    DIR *dp;
+	if ((dp = opendir(_srcpath)) == NULL)
+		return;
     
-	// struct dirent *de;
-	// while ((de = readdir(dp)) != NULL)
-    // {
-    //     if (de->d_type == 8 /* DT_REG */)
-    //     {
-    //         duck_fakefill(buf, de->d_name, filler);
-    //     }
-	// }
+	struct dirent *de;
+	while ((de = readdir(dp)) != NULL)
+    {
+        if (de->d_type == 8 /* DT_REG */)
+        {
+            struct stat st;
+            memset(&st, 0, sizeof(st));
+            st.st_ino = de->d_ino;
+            st.st_mode = de->d_type << 12;
 
-    // closedir(dp);
+            if (filler(buf, de->d_name, &st, 0))
+                break;
+        }
+	}
+
+    closedir(dp);
 }
 
 static int duck_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
@@ -217,70 +233,8 @@ static int duck_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 
     duck_fakefill(buf, ".", filler);
     duck_fakefill(buf, "..", filler);
-    duck_fakefill(buf, "...", filler);
-    duck_fakefill(buf, "....", filler);
 
-    // switch (info.cmd)
-    // {
-    //     case duckCMD_ROOT:
-    //         duck_readdir_root(&info, buf, filler);
-    //         break;
-
-    //     case duckCMD_FAV:
-    //         duck_readdir_fav(&info, buf, filler);
-    //         break;
-
-    //     case duckCMD_ALPHA:
-    //         switch (info.stacklen)
-    //         {
-    //             case 1:
-    //                 duck_readdir_alpha_root(&info, buf, filler);
-    //                 break;
-
-    //             case 2:
-    //                 duck_readdir_alpha_letter(&info, buf, filler);
-    //                 break;
-    //         }
-    //         break;
-
-    //     case duckCMD_REC:
-    //         duck_readdir_rec(&info, buf, filler);
-    //         break;
-
-    //     case duckCMD_HAS:
-    //         switch (info.stacklen)
-    //         {
-    //             case 1:
-    //                 duck_readdir_has_level1(&info, buf, filler);
-    //                 break;
-
-    //             case 2:
-    //                 duck_readdir_has_level2(&info, buf, filler);
-    //                 break;
-    //         }
-    //         break;
-
-    //     case duckCMD_MANAGE:
-    //         switch (info.stacklen)
-    //         {
-    //             case 1:
-    //                 duck_readdir_manage_root(&info, buf, filler);
-    //                 break;
-
-    //             case 2:
-    //                 duck_readdir_manage_file(&info, buf, filler);
-    //                 break;
-
-    //             case 3:
-    //                 duck_readdir_manage_level3(&info, buf, filler);
-    //                 break;
-
-    //             case 4:
-    //                 duck_readdir_manage_sethas(&info, buf, filler);
-    //                 break;
-    //         }
-    //         break;
-    // }
+    duck_readdir_root(&info, buf, filler);
 
     duck_parsepathrelease(&info);
 
