@@ -1,0 +1,5 @@
+*.c.o
+*.c.d
+/fs/duckfs
+/fs/duckfs.elf
+/release
