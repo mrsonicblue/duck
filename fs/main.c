@@ -32,70 +32,6 @@ static char *_mountpath;
 static char *_srcpath;
 static char *_corename;
 
-static void duck_parsepathrelease(struct PathInfo *info)
-{
-    int i;
-    for (i = info->stacklen - 1; i >= 0; i--)
-    {
-        free(info->stack[i]);
-    }
-
-    if (info->filepath)
-        free(info->filepath);
-}
-
-static int duck_isfile(struct PathInfo *info)
-{
-    printf("stacklen: %d\n", info->stacklen);
-
-    if (info->stacklen > 0)
-        return 1;
-
-    return 0;
-}
-
-static char *duck_filepath(struct PathInfo *info)
-{
-    char buf[BUFFER_SIZE];
-    sprintf(buf, "%s/%s", _srcpath, info->stack[info->stacklen - 1]);
-
-    char *result = malloc(strlen(buf) + 1);
-    strcpy(result, buf);
-
-    return result;
-}
-
-static int duck_parsepath(struct PathInfo *info, const char *path)
-{
-    memset(info, 0, sizeof(struct PathInfo));
-
-    char pathdup[BUFFER_SIZE];
-    strcpy(pathdup, path);
-
-    // Skip leading slash in path
-    char *pathbeg = pathdup;
-    if (*pathbeg == '/')
-        pathbeg++;
-
-    char *r = NULL;
-    char *t;
-    char *tmp;
-    int pos = 0;
-    for (t = strtokplus(pathbeg, '/', &r); t != NULL; t = strtokplus(NULL, '/', &r))
-    {
-        tmp = malloc(strlen(t) + 1);
-        strcpy(tmp, t);
-        
-        info->stack[pos++] = tmp;
-    }
-    info->stacklen = pos;
-
-    if ((info->isfile = duck_isfile(info)))
-        info->filepath = duck_filepath(info);
-
-    return 0;
-}
-
 static int duck_getattr_fakedir(struct PathInfo *info, struct stat *stbuf)
 {
     (void) info;
@@ -107,10 +43,10 @@ static int duck_getattr_fakedir(struct PathInfo *info, struct stat *stbuf)
     return 0;
 }
 
-static int duck_getattr_file(struct PathInfo *info, struct stat *stbuf)
+static int duck_getattr_path(const char *path, struct stat *stbuf)
 {
     int res;
-	if ((res = lstat(info->filepath, stbuf)) == -1)
+	if ((res = lstat(path, stbuf)) == -1)
 		return -errno;
 
     return 0;
@@ -120,17 +56,9 @@ static int duck_getattr(const char *path, struct stat *stbuf)
 {
     printf("duck_getattr: %s\n", path);
 
-    struct PathInfo info;
-    if (duck_parsepath(&info, path))
-        return -ENOENT;
-
-    int res;
-    if (info.isfile)
-        res = duck_getattr_file(&info, stbuf);
-    else
-        res = duck_getattr_fakedir(&info, stbuf);
-
-    duck_parsepathrelease(&info);
+    char *abspath = pathjoin(_srcpath, path);
+    int res = duck_getattr_path(abspath, stbuf);
+    free(abspath);
 
     return res;
 }
@@ -194,27 +122,22 @@ static void duck_readdir_alpha_letter(struct PathInfo *info, void *buf, fuse_fil
 	// closedir(dp);
 }
 
-static void duck_readdir_root(struct PathInfo *info, void *buf, fuse_fill_dir_t filler)
+static void duck_readdir_path(const char *path, void *buf, fuse_fill_dir_t filler)
 {
-    (void) info;
-
     DIR *dp;
-	if ((dp = opendir(_srcpath)) == NULL)
+	if ((dp = opendir(path)) == NULL)
 		return;
     
 	struct dirent *de;
 	while ((de = readdir(dp)) != NULL)
     {
-        if (de->d_type == 8 /* DT_REG */)
-        {
-            struct stat st;
-            memset(&st, 0, sizeof(st));
-            st.st_ino = de->d_ino;
-            st.st_mode = de->d_type << 12;
+        struct stat st;
+        memset(&st, 0, sizeof(st));
+        st.st_ino = de->d_ino;
+        st.st_mode = de->d_type << 12;
 
-            if (filler(buf, de->d_name, &st, 0))
-                break;
-        }
+        if (filler(buf, de->d_name, &st, 0))
+            break;
 	}
 
     closedir(dp);
@@ -222,21 +145,25 @@ static void duck_readdir_root(struct PathInfo *info, void *buf, fuse_fill_dir_t 
 
 static int duck_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
 {
-    //printf("duck_readdir: %s\n", path);
+    printf("duck_readdir: %s\n", path);
 
 	(void) offset;
 	(void) fi;
 
-    struct PathInfo info;
-    if (duck_parsepath(&info, path))
-        return -ENOENT;
+    char *abspath = pathjoin(_srcpath, path);
+    duck_readdir_path(abspath, buf, filler);
+    free(abspath);
 
-    duck_fakefill(buf, ".", filler);
-    duck_fakefill(buf, "..", filler);
+    return 0;
+}
 
-    duck_readdir_root(&info, buf, filler);
+static int duck_open_path(const char *path, struct fuse_file_info *fi)
+{
+    int fd;
+    if ((fd = open(path, fi->flags)) == -1)
+        return -errno;
 
-    duck_parsepathrelease(&info);
+    fi->fh = fd;
 
     return 0;
 }
@@ -245,20 +172,11 @@ static int duck_open(const char *path, struct fuse_file_info *fi)
 {
     printf("duck_open: %s\n", path);
 
-    struct PathInfo info;
-    if (duck_parsepath(&info, path))
-        return -ENOENT;
+    char *abspath = pathjoin(_srcpath, path);
+    int res = duck_open_path(abspath, fi);
+    free(abspath);
 
-    if (!info.isfile)
-        return -ENOENT;
-
-    int fd;
-    if ((fd = open(info.filepath, fi->flags)) == -1)
-        return -errno;
-
-    fi->fh = fd;
-
-    return 0;
+    return res;
 }
 
 static int duck_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)

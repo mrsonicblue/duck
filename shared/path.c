@@ -49,6 +49,28 @@ char *pathselfdir(void)
     return _selfdir;
 }
 
+char *pathjoin(const char *one, const char *two)
+{
+    if (two[0] == '/')
+        two++;
+
+    if (two[0] == '\0')
+    {
+        char *result = malloc(strlen(one) + 1);
+        strcpy(result, one);
+
+        return result;
+    }
+
+    char buf[BUFFER_SIZE];
+    sprintf(buf, "%s/%s", one, two);
+
+    char *result = malloc(strlen(buf) + 1);
+    strcpy(result, buf);
+
+    return result;
+}
+
 char *pathmake(char *file)
 {
     if (!_selfdir)
@@ -57,13 +79,7 @@ char *pathmake(char *file)
     if (!_selfdir)
         return (char *)NULL;
 
-    char buf[BUFFER_SIZE];
-    sprintf(buf, "%s/%s", _selfdir, file);
-
-    char *result = malloc(strlen(buf) + 1);
-    strcpy(result, buf);
-
-    return result;
+    return pathjoin(_selfdir, file);
 }
 
 char *pathup(char *path)
