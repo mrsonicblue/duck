@@ -30,6 +30,7 @@ struct PathInfo
 
 static char *_mountpath;
 static char *_srcpath;
+static ino_t _srcino;
 static char *_corename;
 
 static int duck_getattr_fakedir(struct PathInfo *info, struct stat *stbuf)
@@ -131,6 +132,10 @@ static void duck_readdir_path(const char *path, void *buf, fuse_fill_dir_t fille
 	struct dirent *de;
 	while ((de = readdir(dp)) != NULL)
     {
+        // printf("Inode: %d\n", de->d_ino);
+        // if (de->d_ino == _srcino)
+        //     continue;
+
         struct stat st;
         memset(&st, 0, sizeof(st));
         st.st_ino = de->d_ino;
@@ -161,9 +166,11 @@ static int duck_open_path(const char *path, struct fuse_file_info *fi)
 {
     int fd;
     if ((fd = open(path, fi->flags)) == -1)
+    //if ((fd = open(path, O_RDONLY)) == -1)
         return -errno;
 
     fi->fh = fd;
+    fi->direct_io = 1;
 
     return 0;
 }
@@ -181,7 +188,8 @@ static int duck_open(const char *path, struct fuse_file_info *fi)
 
 static int duck_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
-    printf("duck_read: %s\n", path);
+    //printf("duck_read: %s\n", path);
+    printf("duck_read: %lld - %u\n", offset, size);
 
     (void) path;
 
@@ -243,18 +251,31 @@ static int fuse_main_duck(int argc, char *argv[], const struct fuse_operations *
     {
         printf("Source path: %s\n", _srcpath);
 
-        if ((_corename = pathfile(_srcpath)))
+        struct stat st;
+        if (!stat(_srcpath, &st))
         {
-            printf("Core name: %s\n", _corename);
+            _srcino = st.st_ino;
 
-            if (multithreaded)
-                res = fuse_loop_mt(fuse);
+            printf("Source inode: %lld\n", _srcino);
+
+            if ((_corename = pathfile(_srcpath)))
+            {
+                printf("Core name: %s\n", _corename);
+
+                if (multithreaded)
+                    res = fuse_loop_mt(fuse);
+                else
+                    res = fuse_loop(fuse);
+            }
             else
-                res = fuse_loop(fuse);
+            {
+                printf("Failed to get core name\n");
+                res = -1;
+            }
         }
         else
         {
-            printf("Failed to get core name\n");
+            printf("Failed to get source inode\n");
             res = -1;
         }
     }
