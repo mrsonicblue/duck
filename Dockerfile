@@ -1,4 +1,4 @@
-FROM mrsonicblue/mister-build
+FROM mrsonicblue/mister-build:10.2.1
 
 # Create build folder
 RUN set -ex; \
@@ -14,7 +14,7 @@ RUN set -ex; \
     mv libfuse-fuse-2.9.7 libfuse; \
     cd libfuse; \
     ./makeconf.sh; \
-    ./configure --host=arm-linux-gnueabihf --disable-shared; \
+    ./configure --host=arm-none-linux-gnueabihf --disable-shared; \
     make;
 
 WORKDIR /project
