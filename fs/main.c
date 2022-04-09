@@ -19,11 +19,14 @@
 #include <path.h>
 
 #define BUFFER_SIZE 4096
+#define CD_SECTOR_LEN 2352
+#define MAP_SECTOR_LEN (CD_SECTOR_LEN * 8)
 
 struct FileInfo
 {
     int fd;
     char *map;
+    int mapsize;
     char *path;
 };
 
@@ -107,7 +110,20 @@ static int duck_open_path(const char *path, struct fuse_file_info *fi)
 
     if (pathhasext(path, ".bin"))
     {
-        printf("Setting up map\n");        
+        printf("Setting up map\n");
+
+        struct stat st;
+        stat(path, &st);
+        printf("File size is %llu\n", st.st_size);
+
+        int mapsize = st.st_size / MAP_SECTOR_LEN;
+        if (mapsize % MAP_SECTOR_LEN)
+            mapsize++;
+
+        printf("Map size is %d\n", mapsize);
+
+        fh->map = malloc(mapsize);
+        fh->mapsize = mapsize;
 
         fi->direct_io = 1;
     }
@@ -143,6 +159,23 @@ static int duck_read(const char *path, char *buf, size_t size, off_t offset, str
     return res;
 }
 
+static void duck_writemap(const char *path, struct FileInfo *fh)
+{
+    printf("Writing map\n");
+
+    int fd;
+    if ((fd = open(path, O_WRONLY | O_TRUNC | O_CREAT, 0644)) == -1)
+    {
+        printf("Failed to open map file\n");
+        return;
+    }
+
+    if (pwrite(fd, fh->map, fh->mapsize, 0) == -1)
+        printf("Failed to write to map file\n");
+
+    close(fd);
+}
+
 static int duck_release(const char *path, struct fuse_file_info *fi)
 {
     printf("duck_release: %s\n", path);
@@ -153,7 +186,15 @@ static int duck_release(const char *path, struct fuse_file_info *fi)
     close(fh->fd);
 
     if (fh->map)
+    {
+        char mappath[BUFFER_SIZE];
+        sprintf(mappath, "%s.duckmap", path);
+        char *absmappath = pathjoin(_srcpath, mappath);
+        printf("Map file path:%s\n", absmappath);
+
+        duck_writemap(absmappath, fh);
         free(fh->map);
+    }
     free(fh->path);
     free(fh);
 
