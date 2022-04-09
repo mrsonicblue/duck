@@ -20,29 +20,17 @@
 
 #define BUFFER_SIZE 4096
 
-struct PathInfo
+struct FileInfo
 {
-    char *stack[20];
-    int stacklen;
-    int isfile;
-    char *filepath;
+    int fd;
+    char *map;
+    char *path;
 };
 
 static char *_mountpath;
 static char *_srcpath;
 static ino_t _srcino;
 static char *_corename;
-
-static int duck_getattr_fakedir(struct PathInfo *info, struct stat *stbuf)
-{
-    (void) info;
-
-    memset(stbuf, 0, sizeof(struct stat));
-    stbuf->st_mode = S_IFDIR | 0755;
-    stbuf->st_nlink = 1;
-
-    return 0;
-}
 
 static int duck_getattr_path(const char *path, struct stat *stbuf)
 {
@@ -62,65 +50,6 @@ static int duck_getattr(const char *path, struct stat *stbuf)
     free(abspath);
 
     return res;
-}
-
-static void duck_fakefill(void *buf, const char *name, fuse_fill_dir_t filler)
-{
-    struct stat st;
-    memset(&st, 0, sizeof(st));
-    st.st_mode = S_IFDIR;
-
-    filler(buf, name, &st, 0);
-}
-
-static void duck_readdir_alpha_letter(struct PathInfo *info, void *buf, fuse_fill_dir_t filler)
-{
-    // (void) info;
-
-	// DIR *dp;
-	// if ((dp = opendir(_srcpath)) == NULL)
-	// 	return;
-
-    // char letter1 = info->stack[1][0];
-    // char letter2;
-    // if (letter1 >= 'A' && letter1 <= 'Z')
-    // {
-    //     letter2 = letter1 + ('a' - 'A');
-    // }
-    // else
-    // {
-    //     letter1 = '0';
-    //     letter2 = '0';
-    // }
-
-	// struct dirent *de;
-	// while ((de = readdir(dp)) != NULL)
-    // {
-    //     if (de->d_type == 8 /* DT_REG */)
-    //     {
-    //         char first = de->d_name[0];
-    //         if (letter1 == '0')
-    //         {
-    //             if ((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z'))
-    //                 continue;
-    //         }
-    //         else
-    //         {
-    //             if (first != letter1 && first != letter2)
-    //                 continue;
-    //         }
-
-    //         struct stat st;
-    //         memset(&st, 0, sizeof(st));
-    //         st.st_ino = de->d_ino;
-    //         st.st_mode = de->d_type << 12;
-
-    //         if (filler(buf, de->d_name, &st, 0))
-    //             break;
-    //     }
-	// }
-
-	// closedir(dp);
 }
 
 static void duck_readdir_path(const char *path, void *buf, fuse_fill_dir_t filler)
@@ -169,8 +98,21 @@ static int duck_open_path(const char *path, struct fuse_file_info *fi)
     //if ((fd = open(path, O_RDONLY)) == -1)
         return -errno;
 
-    fi->fh = fd;
-    fi->direct_io = 1;
+    struct FileInfo *fh = malloc(sizeof(struct FileInfo));
+    memset(fh, 0, sizeof(struct FileInfo));
+
+    fh->fd = fd;
+    fh->path = malloc(strlen(path) + 1);
+    strcpy(fh->path, path);
+
+    if (pathhasext(path, ".bin"))
+    {
+        printf("Setting up map\n");        
+
+        fi->direct_io = 1;
+    }
+
+    fi->fh = (uintptr_t)fh;
 
     return 0;
 }
@@ -190,11 +132,12 @@ static int duck_read(const char *path, char *buf, size_t size, off_t offset, str
 {
     //printf("duck_read: %s\n", path);
     printf("duck_read: %lld - %u\n", offset, size);
-
+    
     (void) path;
+    struct FileInfo *fh = (struct FileInfo *)(uintptr_t)fi->fh;
 
     int res;
-    if ((res = pread(fi->fh, buf, size, offset)) == -1)
+    if ((res = pread(fh->fd, buf, size, offset)) == -1)
         res = -errno;
 
     return res;
@@ -205,7 +148,14 @@ static int duck_release(const char *path, struct fuse_file_info *fi)
     printf("duck_release: %s\n", path);
 
     (void) path;
-    close(fi->fh);
+    struct FileInfo *fh = (struct FileInfo *)(uintptr_t)fi->fh;
+
+    close(fh->fd);
+
+    if (fh->map)
+        free(fh->map);
+    free(fh->path);
+    free(fh);
 
 	return 0;
 }

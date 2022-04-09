@@ -1,7 +1,10 @@
 char *pathselfexe(void);
 char *pathselfdir(void);
 char *pathjoin(const char *one, const char *two);
-char *pathmake(char *file);
-char *pathup(char *path);
-char *pathfile(char *path);
+char *pathmake(const char *file);
+char *pathup(const char *path);
+char *pathend(const char *path, const char *pos);
+char *pathfile(const char *path);
+char *pathext(const char *path);
+int pathhasext(const char *path, const char *ext);
 char *strtokplus(char *s, char c, char **r);

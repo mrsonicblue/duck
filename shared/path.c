@@ -71,7 +71,7 @@ char *pathjoin(const char *one, const char *two)
     return result;
 }
 
-char *pathmake(char *file)
+char *pathmake(const char *file)
 {
     if (!_selfdir)
         pathinit();
@@ -82,7 +82,7 @@ char *pathmake(char *file)
     return pathjoin(_selfdir, file);
 }
 
-char *pathup(char *path)
+char *pathup(const char *path)
 {
     char *lastslash;
     if ((lastslash = strrchr(path, '/')) == NULL)
@@ -102,7 +102,19 @@ char *pathup(char *path)
     return result;
 }
 
-char *pathfile(char *path)
+char *pathend(const char *path, const char *pos)
+{
+    int len = (path + strlen(path)) - pos - 1;
+    if (len == 0)
+        return (char *)"";
+
+    char *result = malloc(len + 1);
+    strcpy(result, pos + 1);
+
+    return result;
+}
+
+char *pathfile(const char *path)
 {
     char *lastslash;
     if ((lastslash = strrchr(path, '/')) == NULL)
@@ -111,14 +123,38 @@ char *pathfile(char *path)
         return (char *)NULL;
     }
 
-    int len = (path + strlen(path)) - lastslash - 1;
-    if (len == 0)
-        return (char *)"";
+    return pathend(path, lastslash);
+}
 
-    char *result = malloc(len + 1);
-    strcpy(result, lastslash + 1);
+char *pathext(const char *path)
+{
+    char *lastdot;
+    if ((lastdot = strrchr(path, '.')) == NULL)
+    {
+        printf("Failed to find extension of: %s\n", path);
+        return (char *)NULL;
+    }
 
-    return result;
+    return pathend(path, lastdot);
+}
+
+int pathhasext(const char *path, const char *ext)
+{
+    if (!path || !ext)
+        return 0;
+
+    int pathlen = strlen(path);
+    int extlen = strlen(ext);
+    if (extlen > pathlen)
+        return 0;
+
+    for (int i = 1; i <= extlen; i++)
+    {
+        if (path[pathlen - i] != ext[extlen - i])
+            return 0;
+    }
+
+    return 1;
 }
 
 char *strtokplus(char *s, char c, char **r)
