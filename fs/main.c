@@ -123,6 +123,7 @@ static int duck_open_path(const char *path, struct fuse_file_info *fi)
         printf("Map size is %d\n", mapsize);
 
         fh->map = malloc(mapsize);
+        memset(fh->map, 0, mapsize);
         fh->mapsize = mapsize;
 
         fi->direct_io = 1;
@@ -155,6 +156,14 @@ static int duck_read(const char *path, char *buf, size_t size, off_t offset, str
     int res;
     if ((res = pread(fh->fd, buf, size, offset)) == -1)
         res = -errno;
+    
+    if (fh->map)
+    {
+        int index = offset / MAP_SECTOR_LEN;
+        int bit = (offset / CD_SECTOR_LEN) % 8;
+        printf("hmm: %d, %d\n", index, bit);
+        fh->map[index] = fh->map[index] | ('\1' << bit);
+    }
 
     return res;
 }
