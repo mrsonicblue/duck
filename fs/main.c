@@ -94,6 +94,50 @@ static int duck_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
     return 0;
 }
 
+static void duck_make_mappath(char *buf, const char *path)
+{
+    sprintf(buf, "%s.duckmap", path);
+}
+
+static void duck_readmap(const char *path, struct FileInfo *fh)
+{
+    printf("Checking for existing map file\n");
+
+    struct stat st;
+    if (stat(path, &st) == -1)
+    {
+        printf("No existing map file\n");
+        return;
+    }
+
+    printf("File size is %llu\n", st.st_size);
+
+    if (st.st_size != fh->mapsize)
+    {
+        printf("File and map sizes are mismatched - not reading\n");
+        return;
+    }
+
+    printf("Reading map\n");
+
+    int fd;
+    if ((fd = open(path, O_RDONLY)) == -1)
+    {
+        printf("Failed to open map file\n");
+        return;
+    }
+
+    if (pread(fd, fh->map, fh->mapsize, 0) == -1)
+    {
+        printf("Failed to read map file\n");
+
+        // Erase map - just in case it was partially read
+        memset(fh->map, 0, fh->mapsize);
+    }
+
+    close(fd);
+}
+
 static int duck_open_path(const char *path, struct fuse_file_info *fi)
 {
     int fd;
@@ -126,6 +170,11 @@ static int duck_open_path(const char *path, struct fuse_file_info *fi)
         memset(fh->map, 0, mapsize);
         fh->mapsize = mapsize;
 
+        char mappath[BUFFER_SIZE];
+        duck_make_mappath(mappath, path);
+        duck_readmap(mappath, fh);
+
+        // Set inbound file to direct i/o to disable readahead cache
         fi->direct_io = 1;
     }
 
@@ -148,7 +197,7 @@ static int duck_open(const char *path, struct fuse_file_info *fi)
 static int duck_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
     //printf("duck_read: %s\n", path);
-    printf("duck_read: %lld - %u\n", offset, size);
+    //printf("duck_read: %lld - %u\n", offset, size);
     
     (void) path;
     struct FileInfo *fh = (struct FileInfo *)(uintptr_t)fi->fh;
@@ -161,7 +210,7 @@ static int duck_read(const char *path, char *buf, size_t size, off_t offset, str
     {
         int index = offset / MAP_SECTOR_LEN;
         int bit = (offset / CD_SECTOR_LEN) % 8;
-        printf("hmm: %d, %d\n", index, bit);
+
         fh->map[index] = fh->map[index] | ('\1' << bit);
     }
 
@@ -185,11 +234,8 @@ static void duck_writemap(const char *path, struct FileInfo *fh)
     close(fd);
 }
 
-static int duck_release(const char *path, struct fuse_file_info *fi)
+static int duck_release_path(const char *path, struct fuse_file_info *fi)
 {
-    printf("duck_release: %s\n", path);
-
-    (void) path;
     struct FileInfo *fh = (struct FileInfo *)(uintptr_t)fi->fh;
 
     close(fh->fd);
@@ -197,17 +243,26 @@ static int duck_release(const char *path, struct fuse_file_info *fi)
     if (fh->map)
     {
         char mappath[BUFFER_SIZE];
-        sprintf(mappath, "%s.duckmap", path);
-        char *absmappath = pathjoin(_srcpath, mappath);
-        printf("Map file path:%s\n", absmappath);
+        duck_make_mappath(mappath, path);
+        duck_writemap(mappath, fh);
 
-        duck_writemap(absmappath, fh);
         free(fh->map);
     }
     free(fh->path);
     free(fh);
 
-	return 0;
+    return 0;
+}
+
+static int duck_release(const char *path, struct fuse_file_info *fi)
+{
+    printf("duck_release: %s\n", path);
+
+    char *abspath = pathjoin(_srcpath, path);
+    int res = duck_release_path(abspath, fi);
+    free(abspath);
+
+	return res;
 }
 
 static struct fuse_operations duck_oper = {
