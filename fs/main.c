@@ -31,8 +31,8 @@ struct FileInfo
 };
 
 static char *_mountpath;
+static ino_t _mountino;
 static char *_srcpath;
-static ino_t _srcino;
 static char *_corename;
 
 static int duck_getattr_path(const char *path, struct stat *stbuf)
@@ -64,9 +64,9 @@ static void duck_readdir_path(const char *path, void *buf, fuse_fill_dir_t fille
 	struct dirent *de;
 	while ((de = readdir(dp)) != NULL)
     {
-        // printf("Inode: %d\n", de->d_ino);
-        // if (de->d_ino == _srcino)
-        //     continue;
+        // Prevent recursion by omitting mount directory
+        if (de->d_ino == _mountino)
+            continue;
 
         struct stat st;
         memset(&st, 0, sizeof(st));
@@ -287,7 +287,25 @@ static int fuse_main_duck(int argc, char *argv[], const struct fuse_operations *
 	struct fuse *fuse;
 	char *mountpoint;
 	int multithreaded;
+	int foreground;
 	int res;
+
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	if (fuse_parse_cmdline(&args, &mountpoint, &multithreaded, &foreground) == -1)
+		return 1;
+
+    printf("Mount path: %s\n", mountpoint);
+
+    struct stat st;
+    if (stat(mountpoint, &st))
+    {
+        printf("Failed to get mount inode\n");
+        return 1;
+    }
+
+    _mountino = st.st_ino;
+
+    printf("Mount inode: %llu\n", _mountino);
 
 	fuse = fuse_setup(argc, argv, op, op_size, &mountpoint, &multithreaded, user_data);
 	if (fuse == NULL)
@@ -295,8 +313,6 @@ static int fuse_main_duck(int argc, char *argv[], const struct fuse_operations *
         printf("Fuse setup failed\n");
 		return 1;
     }
-
-    printf("Mount path: %s\n", mountpoint);
 
     int mountlen = strlen(mountpoint);
     _mountpath = malloc(mountlen + 1);
@@ -306,31 +322,18 @@ static int fuse_main_duck(int argc, char *argv[], const struct fuse_operations *
     {
         printf("Source path: %s\n", _srcpath);
 
-        struct stat st;
-        if (!stat(_srcpath, &st))
+        if ((_corename = pathfile(_srcpath)))
         {
-            _srcino = st.st_ino;
+            printf("Core name: %s\n", _corename);
 
-            printf("Source inode: %lld\n", _srcino);
-
-            if ((_corename = pathfile(_srcpath)))
-            {
-                printf("Core name: %s\n", _corename);
-
-                if (multithreaded)
-                    res = fuse_loop_mt(fuse);
-                else
-                    res = fuse_loop(fuse);
-            }
+            if (multithreaded)
+                res = fuse_loop_mt(fuse);
             else
-            {
-                printf("Failed to get core name\n");
-                res = -1;
-            }
+                res = fuse_loop(fuse);
         }
         else
         {
-            printf("Failed to get source inode\n");
+            printf("Failed to get core name\n");
             res = -1;
         }
     }
