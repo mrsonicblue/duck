@@ -30,6 +30,8 @@ struct FileInfo
     char *path;
 };
 
+#define GET_FILEINFO(fi) (struct FileInfo *)(uintptr_t)fi->fh
+
 static char *_mountpath;
 static ino_t _mountino;
 static char *_srcpath;
@@ -138,10 +140,10 @@ static void duck_readmap(const char *path, struct FileInfo *fh)
     close(fd);
 }
 
-static int duck_open_path(const char *path, struct fuse_file_info *fi)
+static int duck_open_path(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
     int fd;
-    if ((fd = open(path, fi->flags)) == -1)
+    if ((fd = open(path, fi->flags, mode)) == -1)
     //if ((fd = open(path, O_RDONLY)) == -1)
         return -errno;
 
@@ -188,7 +190,7 @@ static int duck_open(const char *path, struct fuse_file_info *fi)
     printf("duck_open: %s\n", path);
 
     char *abspath = pathjoin(_srcpath, path);
-    int res = duck_open_path(abspath, fi);
+    int res = duck_open_path(abspath, 0, fi);
     free(abspath);
 
     return res;
@@ -200,7 +202,7 @@ static int duck_read(const char *path, char *buf, size_t size, off_t offset, str
     //printf("duck_read: %lld - %u\n", offset, size);
     
     (void) path;
-    struct FileInfo *fh = (struct FileInfo *)(uintptr_t)fi->fh;
+    struct FileInfo *fh = GET_FILEINFO(fi);
 
     int res;
     if ((res = pread(fh->fd, buf, size, offset)) == -1)
@@ -236,7 +238,7 @@ static void duck_writemap(const char *path, struct FileInfo *fh)
 
 static int duck_release_path(const char *path, struct fuse_file_info *fi)
 {
-    struct FileInfo *fh = (struct FileInfo *)(uintptr_t)fi->fh;
+    struct FileInfo *fh = GET_FILEINFO(fi);
 
     close(fh->fd);
 
@@ -265,12 +267,475 @@ static int duck_release(const char *path, struct fuse_file_info *fi)
 	return res;
 }
 
+
+
+
+
+
+
+
+static int xmp_fgetattr(const char *path, struct stat *stbuf,
+			struct fuse_file_info *fi)
+{
+	printf("xmp_fgetattr\n");
+    
+	int res;
+
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+	res = fstat(fh->fd, stbuf);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_access(const char *path, int mask)
+{
+	printf("xmp_access\n");
+    
+	int res;
+
+	res = access(path, mask);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_readlink(const char *path, char *buf, size_t size)
+{
+	printf("xmp_readlink\n");
+    
+	int res;
+
+	res = readlink(path, buf, size - 1);
+	if (res == -1)
+		return -errno;
+
+	buf[res] = '\0';
+	return 0;
+}
+
+static int xmp_mknod(const char *path, mode_t mode, dev_t rdev)
+{
+	printf("xmp_mknod\n");
+    
+	int res;
+
+	if (S_ISFIFO(mode))
+		res = mkfifo(path, mode);
+	else
+		res = mknod(path, mode, rdev);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_mkdir(const char *path, mode_t mode)
+{
+	printf("xmp_mkdir\n");
+    
+	int res;
+
+	res = mkdir(path, mode);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_unlink(const char *path)
+{
+	printf("xmp_unlink\n");
+    
+	int res;
+
+	res = unlink(path);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_rmdir(const char *path)
+{
+	printf("xmp_rmdir\n");
+    
+	int res;
+
+	res = rmdir(path);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_symlink(const char *from, const char *to)
+{
+	printf("xmp_symlink\n");
+    
+	int res;
+
+	res = symlink(from, to);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_rename(const char *from, const char *to)
+{
+	printf("xmp_rename\n");
+    
+	int res;
+
+	res = rename(from, to);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_link(const char *from, const char *to)
+{
+	printf("xmp_link\n");
+    
+	int res;
+
+	res = link(from, to);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_chmod(const char *path, mode_t mode)
+{
+	printf("xmp_chmod\n");
+    
+	int res;
+
+	res = chmod(path, mode);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_chown(const char *path, uid_t uid, gid_t gid)
+{
+	printf("xmp_chown\n");
+    
+	int res;
+
+	res = lchown(path, uid, gid);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_truncate(const char *path, off_t size)
+{
+	printf("xmp_truncate\n");
+    
+	int res;
+
+	res = truncate(path, size);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_ftruncate(const char *path, off_t size,
+			 struct fuse_file_info *fi)
+{
+	printf("xmp_ftruncate\n");
+    
+	int res;
+
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+	res = ftruncate(fh->fd, size);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+#ifdef HAVE_UTIMENSAT
+static int xmp_utimens(const char *path, const struct timespec ts[2])
+{
+	printf("xmp_utimens\n");
+    
+	int res;
+
+	/* don't use utime/utimes since they follow symlinks */
+	res = utimensat(0, path, ts, AT_SYMLINK_NOFOLLOW);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+#endif
+
+static int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
+{
+	printf("xmp_create\n");
+
+    char *abspath = pathjoin(_srcpath, path);
+    int res = duck_open_path(abspath, mode, fi);
+    free(abspath);
+
+    return res;
+}
+
+static int xmp_read_buf(const char *path, struct fuse_bufvec **bufp,
+			size_t size, off_t offset, struct fuse_file_info *fi)
+{
+	printf("xmp_read_buf\n");
+    
+	struct fuse_bufvec *src;
+
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+	src = malloc(sizeof(struct fuse_bufvec));
+	if (src == NULL)
+		return -ENOMEM;
+
+	*src = FUSE_BUFVEC_INIT(size);
+
+	src->buf[0].flags = FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
+	src->buf[0].fd = fh->fd;
+	src->buf[0].pos = offset;
+
+	*bufp = src;
+
+	return 0;
+}
+
+static int xmp_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
+{
+	printf("xmp_write\n");
+
+	int res;
+
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+	res = pwrite(fh->fd, buf, size, offset);
+	if (res == -1)
+		res = -errno;
+
+	return res;
+}
+
+static int xmp_write_buf(const char *path, struct fuse_bufvec *buf,
+		     off_t offset, struct fuse_file_info *fi)
+{
+	printf("xmp_write_buf\n");
+    
+	struct fuse_bufvec dst = FUSE_BUFVEC_INIT(fuse_buf_size(buf));
+
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+	dst.buf[0].flags = FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
+	dst.buf[0].fd = fh->fd;
+	dst.buf[0].pos = offset;
+
+	return fuse_buf_copy(&dst, buf, FUSE_BUF_SPLICE_NONBLOCK);
+}
+
+static int xmp_statfs(const char *path, struct statvfs *stbuf)
+{
+	printf("xmp_statfs\n");
+    
+	int res;
+
+	res = statvfs(path, stbuf);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_flush(const char *path, struct fuse_file_info *fi)
+{
+	printf("xmp_flush\n");
+    
+	int res;
+
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+	/* This is called from every close on an open file, so call the
+	   close on the underlying filesystem.	But since flush may be
+	   called multiple times for an open file, this must not really
+	   close the file.  This is important if used on a network
+	   filesystem like NFS which flush the data/metadata on close() */
+	res = close(dup(fh->fd));
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int xmp_fsync(const char *path, int isdatasync,
+		     struct fuse_file_info *fi)
+{
+	printf("xmp_fsync\n");
+    
+	int res;
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+#ifndef HAVE_FDATASYNC
+	(void) isdatasync;
+#else
+	if (isdatasync)
+		res = fdatasync(fh->fd);
+	else
+#endif
+		res = fsync(fh->fd);
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+#ifdef HAVE_POSIX_FALLOCATE
+static int xmp_fallocate(const char *path, int mode,
+			off_t offset, off_t length, struct fuse_file_info *fi)
+{
+	printf("xmp_fallocate\n");
+    
+	(void) path;
+    struct FileInfo *fh = GET_FILEINFO(fi);
+
+	if (mode)
+		return -EOPNOTSUPP;
+
+	return -posix_fallocate(fh->fd, offset, length);
+}
+#endif
+
+#ifdef HAVE_SETXATTR
+/* xattr operations are optional and can safely be left unimplemented */
+static int xmp_setxattr(const char *path, const char *name, const char *value,
+			size_t size, int flags)
+{
+	printf("xmp_setxattr\n");
+    
+	int res = lsetxattr(path, name, value, size, flags);
+	if (res == -1)
+		return -errno;
+	return 0;
+}
+
+static int xmp_getxattr(const char *path, const char *name, char *value,
+			size_t size)
+{
+	printf("xmp_getxattr: %s - %s\n", path, name);
+    
+	int res = lgetxattr(path, name, value, size);
+	if (res == -1)
+		return -errno;
+	return res;
+}
+
+static int xmp_listxattr(const char *path, char *list, size_t size)
+{
+	printf("xmp_listxattr: %s\n", path);
+    
+	int res = llistxattr(path, list, size);
+	if (res == -1)
+		return -errno;
+	return res;
+}
+
+static int xmp_removexattr(const char *path, const char *name)
+{
+	printf("xmp_removexattr\n");
+    
+	int res = lremovexattr(path, name);
+	if (res == -1)
+		return -errno;
+	return 0;
+}
+#endif /* HAVE_SETXATTR */
+
+static int xmp_lock(const char *path, struct fuse_file_info *fi, int cmd,
+		    struct flock *lock)
+{
+	printf("xmp_lock\n");
+
+    return 0;
+}
+
+static int xmp_flock(const char *path, struct fuse_file_info *fi, int op)
+{
+	printf("xmp_flock\n");
+
+	return 0;
+}
+
+
+
+
+
+
+
 static struct fuse_operations duck_oper = {
 	.getattr	= duck_getattr,
 	.readdir	= duck_readdir,
 	.open		= duck_open,
 	.read		= duck_read,
-	.release	= duck_release
+	.release	= duck_release,
+
+
+	.fgetattr	= xmp_fgetattr,
+	.access		= xmp_access,
+	.readlink	= xmp_readlink,
+	//.opendir	= xmp_opendir,
+	//.releasedir	= xmp_releasedir,
+	.mknod		= xmp_mknod,
+	.mkdir		= xmp_mkdir,
+	.symlink	= xmp_symlink,
+	.unlink		= xmp_unlink,
+	.rmdir		= xmp_rmdir,
+	.rename		= xmp_rename,
+	.link		= xmp_link,
+	.chmod		= xmp_chmod,
+	.chown		= xmp_chown,
+	.truncate	= xmp_truncate,
+	.ftruncate	= xmp_ftruncate,
+#ifdef HAVE_UTIMENSAT
+	.utimens	= xmp_utimens,
+#endif
+	.create		= xmp_create,
+	//.read_buf	= xmp_read_buf,
+	.write		= xmp_write,
+	//.write_buf	= xmp_write_buf,
+	.statfs		= xmp_statfs,
+	//.flush		= xmp_flush,
+	//.fsync		= xmp_fsync,
+#ifdef HAVE_POSIX_FALLOCATE
+	.fallocate	= xmp_fallocate,
+#endif
+#ifdef HAVE_SETXATTR
+	.setxattr	= xmp_setxattr,
+	.getxattr	= xmp_getxattr,
+	.listxattr	= xmp_listxattr,
+	.removexattr	= xmp_removexattr,
+#endif
+	//.lock		= xmp_lock,
+	//.flock		= xmp_flock,
 };
 
 static int initialize(void)
